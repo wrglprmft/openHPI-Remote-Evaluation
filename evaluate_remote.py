@@ -4,6 +4,7 @@ import urllib.error
 import urllib.request
 import sys
 import os
+import datetime
 
 
 def main():
@@ -13,7 +14,7 @@ def main():
         if len(sys.argv) > 1:
             os.chdir(sys.argv[1])
 
-        result = get_result()
+        result = submit()
         print_result(result)
 
     except FileNotFoundError as fnfe:
@@ -46,35 +47,60 @@ def main():
         os.chdir(cwd)
 
 
-def get_result():
+def submit():
     url, payload = create_payload()
-    response = post_payload_as_json(url, payload)
-    return check_response(response)
+    return post_payload_as_json(url, payload)
 
 
-def print_result(result):
+def print_result(response):
+    result = check_response(response)
+    save(response["content"])
     passed = 0
     count = 0
     weight = 0.0
     weighted_score = 0.0
 
     # expect a list of dicts, matching the expected response structure
+    scores = []
     for file in result:
+        scores.append((file["passed"], file["count"], file["score"], file["status"]))
         passed += file["passed"]
         count += file["count"]
         weight += file["weight"]
         weighted_score += file["score"] * file["weight"]
 
         print(f"\n--- {file['filename']}")
-        for error in file["error_messages"]:
-            print(error)
-        print(file["message"])
-        print(f"==> passed {file['passed']} from {file['count']} tests, ", end="")
-        print(f"score = {file['score']}, status = {file['status']}")
+        # print_lines(file,"stdout")
+        # print_lines(file,"stderr")
+        print_error_messages(file["error_messages"])
+        print_lines(file, "message")
 
     print("\n--- Total ---")
+    cnt = 1
+    if weight == 0:
+        weight = 1
+    for score in scores:
+        print(f"({cnt}) ==> passed {score[0]} from {score[1]} tests, ", end="")
+        print(f"score = {round(score[2],2)}, status = {score[3]}")
+        cnt += 1
     print(f"==> passed {passed} from {count} tests, ", end="")
-    print(f"weighted score = {weighted_score/weight}")
+    print(f"total score = {weighted_score/weight}")
+
+
+def print_error_messages(errors):
+    if errors:
+        print("|-- error_messages ---")
+        for error in errors:
+            for line in error.splitlines():
+                print("|", line)
+            print("|")
+
+
+def print_lines(file, part):
+    if file[part]:
+        print(f"|-- {part} ---")
+    for line in file[part].splitlines():
+        print("|", line)
 
 
 def create_payload():
@@ -154,9 +180,20 @@ def print_error_response(response):
     print("\n----- Http-Headers:")
     for header in response["headers"]:
         print("  ", header[0], ":", header[1])
-        
+
     print("\n----- Content (utf-8 decoded):")
     print(response["content"].decode())
+
+
+def save(result):
+    if not os.path.exists("log") or not os.path.isdir("log"):
+        return
+
+    fname = (
+        "log/result_" + datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S") + ".json"
+    )
+    with open(fname, "wb") as file:
+        file.write(result)
 
 
 # don't run while being imported
