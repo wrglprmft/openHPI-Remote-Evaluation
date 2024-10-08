@@ -6,13 +6,17 @@ import sys
 import os
 import datetime
 
+global_project_directory = "."
 
-def main():
+
+def main(project_dir = "."):
     try:
-        # remember current directory and change directory as requested
-        cwd = os.getcwd()
-        if len(sys.argv) > 1:
-            os.chdir(sys.argv[1])
+        if not os.path.isdir(project_dir):
+            print(f"{project_dir} is not a directory")
+            return
+        
+        global global_project_directory
+        global_project_directory = project_dir
 
         result = submit()
         print_result(result)
@@ -20,7 +24,7 @@ def main():
     except FileNotFoundError as fnfe:
         # raised if .co file or required src files are not in the
         # current directory
-        print(f'File/Directory "{fnfe.filename}" not found in {os.getcwd()}')
+        print(f'File "{fnfe.filename}" not found')
 
     except urllib.error.HTTPError as he:
         # raised if the response code from the POST request is
@@ -41,10 +45,11 @@ def main():
         #   "application/json"
         # o parsed response json does not have the expected structure:
         #   non empty list of dicts containg "filename"
-        print_error_response(ae.args[0])
-
-    finally:
-        os.chdir(cwd)
+        if isinstance(ae.args[0], str):
+            # empty list (happens on Spielwiese)
+            print(ae.args[0])
+        else:    
+            print_error_response(ae.args[0])
 
 
 def submit():
@@ -146,7 +151,9 @@ def post_payload_as_json(url, payload):
 
 
 def read_utf8_file(file_name):
-    with open(file_name, encoding="utf-8") as file:
+    with open(
+        os.path.join(global_project_directory, file_name), encoding="utf-8"
+    ) as file:
         content = file.read()
     return content
 
@@ -162,7 +169,7 @@ def check_response(response):
     assert found, response
     result = json.loads(response["content"])
     assert isinstance(result, list), response
-    assert len(result) > 0, response
+    assert len(result) > 0, "Files submitted, but there are no tests"
     assert isinstance(result[0], dict), response
     assert "filename" in result[0], response
 
@@ -198,4 +205,4 @@ def save(result):
 
 # don't run while being imported
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1] if len(sys.argv) > 1 else ".")
