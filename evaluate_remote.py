@@ -6,19 +6,14 @@ import sys
 import os
 import datetime
 
-global_project_directory = "."
 
-
-def main(project_dir = "."):
+def main(project_directory="."):
     try:
-        if not os.path.isdir(project_dir):
-            print(f"{project_dir} is not a directory")
+        if not os.path.isdir(project_directory):
+            print(f"{project_directory} is not a directory")
             return
-        
-        global global_project_directory
-        global_project_directory = project_dir
 
-        result = submit()
+        result = submit(project_directory)
         print_result(result)
 
     except FileNotFoundError as fnfe:
@@ -48,12 +43,12 @@ def main(project_dir = "."):
         if isinstance(ae.args[0], str):
             # empty list (happens on Spielwiese)
             print(ae.args[0])
-        else:    
+        else:
             print_error_response(ae.args[0])
 
 
-def submit():
-    url, payload = create_payload()
+def submit(project_directory):
+    url, payload = create_payload(project_directory)
     return post_payload_as_json(url, payload)
 
 
@@ -67,6 +62,7 @@ def print_result(response):
 
     # expect a list of dicts, matching the expected response structure
     scores = []
+    file_counter = 1
     for file in result:
         scores.append((file["passed"], file["count"], file["score"], file["status"]))
         passed += file["passed"]
@@ -74,11 +70,13 @@ def print_result(response):
         weight += file["weight"]
         weighted_score += file["score"] * file["weight"]
 
-        print(f"\n--- {file['filename']}")
+        print(f"\n--- ({file_counter}) {file['filename']}")
         # print_lines(file,"stdout")
         # print_lines(file,"stderr")
         print_error_messages(file["error_messages"])
         print_lines(file, "message")
+
+        file_counter += 1
 
     print("\n--- Total ---")
     cnt = 1
@@ -108,18 +106,20 @@ def print_lines(file, part):
         print("|", line)
 
 
-def create_payload():
+def create_payload(project_directory):
     # read control file with target url, validation token
     # and expected files
-    co_file = read_utf8_file(".co").splitlines()
+    co_file = read_utf8_file(project_directory, ".co").splitlines()
 
     # fill files_attributes
     files_attributes = {}
+    print("--- files to be submitted")
     for i in range(2, len(co_file)):
-        file_name, file_id = co_file[i].split("=")
+        file_name, file_id = co_file[i].split("=")        
+        print("|", file_name)
         files_attributes[str(i - 2)] = {
             "file_id": int(file_id),
-            "content": read_utf8_file(file_name),
+            "content": read_utf8_file(project_directory, file_name),
         }
 
     # UTF-8 (allowing non-ascii) and prefer a small json, i.e. no
@@ -150,10 +150,8 @@ def post_payload_as_json(url, payload):
     return response
 
 
-def read_utf8_file(file_name):
-    with open(
-        os.path.join(global_project_directory, file_name), encoding="utf-8"
-    ) as file:
+def read_utf8_file(directory, file_name):
+    with open(os.path.join(directory, file_name), encoding="utf-8") as file:
         content = file.read()
     return content
 
