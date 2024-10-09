@@ -55,6 +55,7 @@ def submit(project_directory):
 def print_result(response):
     result = check_response(response)
     save(response["content"])
+    print("| Files submitted")
     passed = 0
     count = 0
     weight = 0.0
@@ -72,7 +73,7 @@ def print_result(response):
 
         print(f"\n--- ({file_counter}) {file['filename']}")
         # print_lines(file,"stdout")
-        # print_lines(file,"stderr")
+        print_lines(file,"stderr")
         print_error_messages(file["error_messages"])
         print_lines(file, "message")
 
@@ -113,7 +114,7 @@ def create_payload(project_directory):
 
     # fill files_attributes
     files_attributes = {}
-    print("--- files to be submitted")
+    print("--- Submit")
     for i in range(2, len(co_file)):
         file_name, file_id = co_file[i].split("=")        
         print("|", file_name)
@@ -167,7 +168,7 @@ def check_response(response):
     assert found, response
     result = json.loads(response["content"])
     assert isinstance(result, list), response
-    assert len(result) > 0, "Files submitted, but there are no tests"
+    assert len(result) > 0, "There are no tests"
     assert isinstance(result[0], dict), response
     assert "filename" in result[0], response
 
