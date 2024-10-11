@@ -23,7 +23,7 @@ def submit_and_pray(exercise_directory=".", stderr=True, stdout=True):
 
         # result is a list of dictionaries
         result = check_response(response)
-        print("| Files submitted")
+        print(f"|\n| Files submitted:", get_location_header(response["headers"]))
 
         # save the valid (binary) content if a directory "./log" exists
         save(response["content"])
@@ -38,6 +38,19 @@ def submit_and_pray(exercise_directory=".", stderr=True, stdout=True):
     except urllib.error.HTTPError as he:
         # raised if the response code from the POST request is
         # not 2xx (expected is 201)
+        if he.code == http.HTTPStatus.SERVICE_UNAVAILABLE:
+            print(http.HTTPStatus.SERVICE_UNAVAILABLE.description)
+            print("\nMost likely no execution environment is currently available")
+            print("Try again later")
+            return
+        
+        if he.code == http.HTTPStatus.UNPROCESSABLE_ENTITY:
+             print(http.HTTPStatus.SERVICE_UNAVAILABLE.description)
+             print("\n Ohoh")
+             print("The server cannot process the payload. This is an error")
+             print("in the script. Please report")
+             return
+        
         print_error_response(
             {
                 "content": he.fp.read(),
@@ -66,18 +79,26 @@ def print_result(result, stderr, stdout):
 
     passed = 0
     count = 0
-    weight = 0.0
-    weighted_score = 0.0
+    total_weight = 0.0
+    total_cops = 0.0  # CodeOcean Points
 
     # expect a list of dicts, matching the expected response structure
     scores = []
     file_counter = 1
     for file in result:
-        scores.append((file["passed"], file["count"], file["score"], file["status"]))
+        cops = file["score"] * file["weight"]  # CodeOcean Points
+        scores.append(
+            (
+                file["passed"],
+                file["count"],
+                cops,
+                file["status"],
+            )
+        )
         passed += file["passed"]
         count += file["count"]
-        weight += file["weight"]
-        weighted_score += file["score"] * file["weight"]
+        total_weight += file["weight"]
+        total_cops += cops
 
         print(f"\n--- ({file_counter}) {file['filename']}")
         if stdout:
@@ -89,16 +110,22 @@ def print_result(result, stderr, stdout):
 
         file_counter += 1
 
-    print("\n--- Total ---")
+    print("\n--- Total (points are CodeOcean points; openHPI points might differ) ---")
     cnt = 1
-    if weight == 0:
-        weight = 1
+    if total_weight == 0:
+        percent = 100
+    else:
+        percent = round(100 * total_cops / total_weight, 2)
+    total_cops = {round(total_cops,2)}    
+
     for score in scores:
         print(f"({cnt}) ==> passed {score[0]} from {score[1]} tests, ", end="")
-        print(f"score = {round(score[2],2)}, status = {score[3]}")
+        print(f"points = {round(score[2],2)}, status = {score[3]}")
         cnt += 1
     print(f"\n======> passed {passed} from {count} tests, ", end="")
-    print(f"total score = {weighted_score/weight} <=====")
+    print(
+        f"total points = {total_cops} ({percent:g}%) <=====",
+    )
 
 
 def print_error_messages(errors):
@@ -216,6 +243,12 @@ def save(result):
     with open(fname, "wb") as file:
         file.write(result)
 
+def get_location_header(headers):
+    for header in headers:
+        if header[0].lower() == "location":
+            return header[1]
+    return "no submission url availabale"        
+        
 
 def run(argv):
     exercise_directory = "."
