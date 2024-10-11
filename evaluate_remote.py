@@ -5,16 +5,30 @@ import urllib.request
 import sys
 import os
 import datetime
+import textwrap
 
 
-def main(project_directory="."):
+# main entry point:
+# needs a directory, that contains the .co file (and sources to be submitted)
+# submits and prints result from codeocean and also stderr/stdout from
+# the codeocean response if wanted
+def submit_and_pray(exercise_directory=".", stderr=True, stdout=True):
     try:
-        if not os.path.isdir(project_directory):
-            print(f"{project_directory} is not a directory")
+        if not os.path.isdir(exercise_directory):
+            print(f"{exercise_directory} is not a directory")
             return
 
-        result = submit(project_directory)
-        print_result(result)
+        # response has status, headers and binary content
+        response = submit(exercise_directory)
+
+        # result is a list of dictionaries
+        result = check_response(response)
+        print("| Files submitted")
+
+        # save the valid (binary) content if a directory "./log" exists
+        save(response["content"])
+
+        print_result(result, stderr, stdout)
 
     except FileNotFoundError as fnfe:
         # raised if .co file or required src files are not in the
@@ -40,11 +54,7 @@ def main(project_directory="."):
         #   "application/json"
         # o parsed response json does not have the expected structure:
         #   non empty list of dicts containg "filename"
-        if isinstance(ae.args[0], str):
-            # empty list (happens on Spielwiese)
-            print(ae.args[0])
-        else:
-            print_error_response(ae.args[0])
+        print_error_response(ae.args[0])
 
 
 def submit(project_directory):
@@ -52,10 +62,8 @@ def submit(project_directory):
     return post_payload_as_json(url, payload)
 
 
-def print_result(response):
-    result = check_response(response)
-    save(response["content"])
-    print("| Files submitted")
+def print_result(result, stderr, stdout):
+
     passed = 0
     count = 0
     weight = 0.0
@@ -72,9 +80,11 @@ def print_result(response):
         weighted_score += file["score"] * file["weight"]
 
         print(f"\n--- ({file_counter}) {file['filename']}")
-        # print_lines(file,"stdout")
-        print_lines(file,"stderr")
-        print_error_messages(file["error_messages"])
+        if stdout:
+            print_lines(file, "stdout")
+        if stderr:
+            print_lines(file, "stderr")
+        print_error_messages(file.get("error_messages", None))
         print_lines(file, "message")
 
         file_counter += 1
@@ -87,8 +97,8 @@ def print_result(response):
         print(f"({cnt}) ==> passed {score[0]} from {score[1]} tests, ", end="")
         print(f"score = {round(score[2],2)}, status = {score[3]}")
         cnt += 1
-    print(f"==> passed {passed} from {count} tests, ", end="")
-    print(f"total score = {weighted_score/weight}")
+    print(f"\n======> passed {passed} from {count} tests, ", end="")
+    print(f"total score = {weighted_score/weight} <=====")
 
 
 def print_error_messages(errors):
@@ -96,14 +106,19 @@ def print_error_messages(errors):
         print("|-- error_messages ---")
         for error in errors:
             for line in error.splitlines():
-                print("|", line)
+                print_long_line(line)
             print("|")
 
 
 def print_lines(file, part):
-    if file[part]:
+    if file.get(part, None):
         print(f"|-- {part} ---")
     for line in file[part].splitlines():
+        print_long_line(line)
+
+
+def print_long_line(long_line):
+    for line in textwrap.wrap(long_line, 76):
         print("|", line)
 
 
@@ -116,7 +131,7 @@ def create_payload(project_directory):
     files_attributes = {}
     print("--- Submit")
     for i in range(2, len(co_file)):
-        file_name, file_id = co_file[i].split("=")        
+        file_name, file_id = co_file[i].split("=")
         print("|", file_name)
         files_attributes[str(i - 2)] = {
             "file_id": int(file_id),
@@ -168,9 +183,9 @@ def check_response(response):
     assert found, response
     result = json.loads(response["content"])
     assert isinstance(result, list), response
-    assert len(result) > 0, "There are no tests"
-    assert isinstance(result[0], dict), response
-    assert "filename" in result[0], response
+    if len(result) > 0:  # There are tests"
+        assert isinstance(result[0], dict), response
+        assert "filename" in result[0], response
 
     return result
 
@@ -202,6 +217,28 @@ def save(result):
         file.write(result)
 
 
+def run(argv):
+    exercise_directory = "."
+    stderr = False
+    stdout = False
+
+    for i in range(1, len(argv)):
+        if argv[i][0] != "-":
+            exercise_directory = argv[i]
+        elif argv[i] == "-o":
+            stdout = True
+        elif argv[i] == "-e":
+            stderr = True
+        else:
+            print(f"\nUSAGE: {argv[0]} [-e] [-s] <directory>")
+            print(f"  directory: directory containing the .co file")
+            print(f"  -e: print also stderr from response")
+            print(f"  -o: print also stdout from response")
+            return
+
+    submit_and_pray(exercise_directory, stderr, stdout)
+
+
 # don't run while being imported
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else ".")
+    run(sys.argv)
