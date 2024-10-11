@@ -1,11 +1,14 @@
+# version 0.1.0 
+# by wrglprmft
+
 import json
 import http
 import urllib.error
 import urllib.request
-import sys
 import os
 import datetime
 import textwrap
+import argparse
 
 
 # main entry point:
@@ -43,14 +46,14 @@ def submit_and_pray(exercise_directory=".", stderr=True, stdout=True):
             print("\nMost likely no execution environment is currently available")
             print("Try again later")
             return
-        
+
         if he.code == http.HTTPStatus.UNPROCESSABLE_ENTITY:
-             print(http.HTTPStatus.SERVICE_UNAVAILABLE.description)
-             print("\n Ohoh")
-             print("The server cannot process the payload. This is an error")
-             print("in the script. Please report")
-             return
-        
+            print(http.HTTPStatus.SERVICE_UNAVAILABLE.description)
+            print("\n Ohoh")
+            print("The server cannot process the payload. This is an error")
+            print("in the script. Please report")
+            return
+
         print_error_response(
             {
                 "content": he.fp.read(),
@@ -87,14 +90,7 @@ def print_result(result, stderr, stdout):
     file_counter = 1
     for file in result:
         cops = file["score"] * file["weight"]  # CodeOcean Points
-        scores.append(
-            (
-                file["passed"],
-                file["count"],
-                cops,
-                file["status"],
-            )
-        )
+        scores.append((file["passed"], file["count"], cops, file["status"]))
         passed += file["passed"]
         count += file["count"]
         total_weight += file["weight"]
@@ -116,16 +112,16 @@ def print_result(result, stderr, stdout):
         percent = 100
     else:
         percent = round(100 * total_cops / total_weight, 2)
-    total_cops = {round(total_cops,2)}    
+    total_cops = round(total_cops, 2)
 
     for score in scores:
+        # (1) ==> passed 3 from 3 tests, points = 3.0, status = ok
         print(f"({cnt}) ==> passed {score[0]} from {score[1]} tests, ", end="")
         print(f"points = {round(score[2],2)}, status = {score[3]}")
         cnt += 1
+    # ======> passed 5 from 5 tests, total points = 3.0 (100%) <=====
     print(f"\n======> passed {passed} from {count} tests, ", end="")
-    print(
-        f"total points = {total_cops} ({percent:g}%) <=====",
-    )
+    print(f"total points = {total_cops} ({percent:g}%) <=====")
 
 
 def print_error_messages(errors):
@@ -237,41 +233,32 @@ def save(result):
     if not os.path.exists("log") or not os.path.isdir("log"):
         return
 
-    fname = (
-        "log/result_" + datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S") + ".json"
-    )
+    fname = "log/result_" + datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S") + ".json"
     with open(fname, "wb") as file:
         file.write(result)
+
 
 def get_location_header(headers):
     for header in headers:
         if header[0].lower() == "location":
             return header[1]
-    return "no submission url availabale"        
-        
+    return "no submission url availabale"
 
-def run(argv):
-    exercise_directory = "."
-    stderr = False
-    stdout = False
 
-    for i in range(1, len(argv)):
-        if argv[i][0] != "-":
-            exercise_directory = argv[i]
-        elif argv[i] == "-o":
-            stdout = True
-        elif argv[i] == "-e":
-            stderr = True
-        else:
-            print(f"\nUSAGE: {argv[0]} [-e] [-s] <directory>")
-            print(f"  directory: directory containing the .co file")
-            print(f"  -e: print also stderr from response")
-            print(f"  -o: print also stdout from response")
-            return
+def run():
 
-    submit_and_pray(exercise_directory, stderr, stdout)
+    parser = argparse.ArgumentParser(
+        description="Submits an exercise to CodeOcean for evaluation",
+        epilog="(wrglprmft)",
+    )
+    parser.add_argument("directory", help="directory with .co file and sources")
+    parser.add_argument("-o", "--stdout", action="store_true", help="output also stdout")
+    parser.add_argument("-e", "--stderr", action="store_true", help="output also stderr")
+    parameter = parser.parse_args()
+
+    submit_and_pray(parameter.directory, parameter.stdout, parameter.stderr)
 
 
 # don't run while being imported
 if __name__ == "__main__":
-    run(sys.argv)
+    run()
