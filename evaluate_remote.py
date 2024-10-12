@@ -1,4 +1,4 @@
-# version 0.1.0 
+_version = "0.1.1"
 # by wrglprmft
 
 import json
@@ -42,16 +42,16 @@ def submit_and_pray(exercise_directory=".", stderr=True, stdout=True):
         # raised if the response code from the POST request is
         # not 2xx (expected is 201)
         if he.code == http.HTTPStatus.SERVICE_UNAVAILABLE:
-            print(http.HTTPStatus.SERVICE_UNAVAILABLE.description)
-            print("\nMost likely no execution environment is currently available")
-            print("Try again later")
+            print(f"\nHttp-Status:{he.code} ({http.HTTPStatus(he.code).phrase})")
+            print("\n  Most likely no execution environment is currently available.")
+            print("  Try again later.")
             return
 
         if he.code == http.HTTPStatus.UNPROCESSABLE_ENTITY:
-            print(http.HTTPStatus.SERVICE_UNAVAILABLE.description)
+            print(f"\nHttp-Status:{he.code} ({http.HTTPStatus(he.code).phrase})")
             print("\n Ohoh")
-            print("The server cannot process the payload. This is an error")
-            print("in the script. Please report")
+            print("  The server cannot process the payload. This is an error.")
+            print("  in the script. Please report.")
             return
 
         print_error_response(
@@ -90,7 +90,7 @@ def print_result(result, stderr, stdout):
     file_counter = 1
     for file in result:
         cops = file["score"] * file["weight"]  # CodeOcean Points
-        scores.append((file["passed"], file["count"], cops, file["status"]))
+        scores.append((file["passed"], file["count"], cops, file["status"], file["weight"]))
         passed += file["passed"]
         count += file["count"]
         total_weight += file["weight"]
@@ -108,20 +108,18 @@ def print_result(result, stderr, stdout):
 
     print("\n--- Total (points are CodeOcean points; openHPI points might differ) ---")
     cnt = 1
-    if total_weight == 0:
-        percent = 100
-    else:
-        percent = round(100 * total_cops / total_weight, 2)
+    percent = 100 if total_weight == 0 else round(100 * total_cops / total_weight, 2)
     total_cops = round(total_cops, 2)
 
     for score in scores:
-        # (1) ==> passed 3 from 3 tests, points = 3.0, status = ok
-        print(f"({cnt}) ==> passed {score[0]} from {score[1]} tests, ", end="")
-        print(f"points = {round(score[2],2)}, status = {score[3]}")
+        print(f"({cnt}) ==> passed {score[0]} / {score[1]} tests, ", end="")
+        print(f"points = {round(score[2],2)} / {score[4]}, status = {score[3]}")
         cnt += 1
-    # ======> passed 5 from 5 tests, total points = 3.0 (100%) <=====
-    print(f"\n======> passed {passed} from {count} tests, ", end="")
-    print(f"total points = {total_cops} ({percent:g}%) <=====")
+    print(f"\n    ==> passed {passed} / {count} tests, ", end="")
+    print(f"points = {total_cops} / {total_weight}")
+    total_len = 63
+    len = int(total_len * percent / 100)
+    print(f"\n[{len*'#'}{(total_len-len)*'_'}] {percent:g}%")
 
 
 def print_error_messages(errors):
@@ -141,8 +139,11 @@ def print_lines(file, part):
 
 
 def print_long_line(long_line):
-    for line in textwrap.wrap(long_line, 76):
-        print("|", line)
+    if long_line.strip() == "":
+        print("|")
+    else:
+        for line in textwrap.wrap(long_line, 70):
+            print("|", line)
 
 
 def create_payload(project_directory):
@@ -218,7 +219,7 @@ def print_error_response(response):
     print(
         "Http Status Code:",
         response["status"],
-        "(" + http.HTTPStatus(response["status"]).description + ")",
+        "(" + http.HTTPStatus(response["status"]).phrase + ")",
     )
 
     print("\n----- Http-Headers:")
@@ -249,12 +250,17 @@ def run():
 
     parser = argparse.ArgumentParser(
         description="Submits an exercise to CodeOcean for evaluation",
-        epilog="(wrglprmft)",
+        epilog=20 * ". " + "(wrglprmft)",
     )
-    parser.add_argument("directory", help="directory with .co file and sources")
+    parser.add_argument("directory", help="directory with .co file", default=".", nargs="?")
     parser.add_argument("-o", "--stdout", action="store_true", help="output also stdout")
     parser.add_argument("-e", "--stderr", action="store_true", help="output also stderr")
+    parser.add_argument("--version", action="store_true", help="show version and exit")
     parameter = parser.parse_args()
+
+    if parameter.version:
+        print(f"Version {_version}")
+        return
 
     submit_and_pray(parameter.directory, parameter.stdout, parameter.stderr)
 
