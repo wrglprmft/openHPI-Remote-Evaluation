@@ -1,4 +1,4 @@
-_version = "0.1.1"
+_version = "0.1.2"
 # by wrglprmft
 
 import json
@@ -6,7 +6,6 @@ import http
 import urllib.error
 import urllib.request
 import os
-import datetime
 import textwrap
 import argparse
 
@@ -22,14 +21,12 @@ def submit_and_pray(exercise_directory=".", stderr=True, stdout=True):
             return
 
         # response has status, headers and binary content
+        print("--- Submit")
         response = submit(exercise_directory)
 
         # result is a list of dictionaries
         result = check_response(response)
-        print(f"|\n| Files submitted:", get_location_header(response["headers"]))
-
-        # save the valid (binary) content if a directory "./log" exists
-        save(response["content"])
+        print(f"|\n| Files submitted:", get_header(response["headers"], "location"))
 
         print_result(result, stderr, stdout)
 
@@ -41,25 +38,8 @@ def submit_and_pray(exercise_directory=".", stderr=True, stdout=True):
     except urllib.error.HTTPError as he:
         # raised if the response code from the POST request is
         # not 2xx (expected is 201)
-        if he.code == http.HTTPStatus.SERVICE_UNAVAILABLE:
-            print(f"\nHttp-Status:{he.code} ({http.HTTPStatus(he.code).phrase})")
-            print("\n  Most likely no execution environment is currently available.")
-            print("  Try again later.")
-            return
-
-        if he.code == http.HTTPStatus.UNPROCESSABLE_ENTITY:
-            print(f"\nHttp-Status:{he.code} ({http.HTTPStatus(he.code).phrase})")
-            print("\n Ohoh")
-            print("  The server cannot process the payload. This is an error.")
-            print("  in the script. Please report.")
-            return
-
         print_error_response(
-            {
-                "content": he.fp.read(),
-                "headers": he.headers.items(),
-                "status": he.code,
-            }
+            {"content": he.fp.read(), "headers": he.headers.items(), "status": he.code}
         )
 
     except AssertionError as ae:
@@ -82,8 +62,8 @@ def print_result(result, stderr, stdout):
 
     passed = 0
     count = 0
-    total_weight = 0.0
-    total_cops = 0.0  # CodeOcean Points
+    max_cops = 0.0  # CodeOcean Points
+    total_cops = 0.0
 
     # expect a list of dicts, matching the expected response structure
     scores = []
@@ -93,33 +73,31 @@ def print_result(result, stderr, stdout):
         scores.append((file["passed"], file["count"], cops, file["status"], file["weight"]))
         passed += file["passed"]
         count += file["count"]
-        total_weight += file["weight"]
+        max_cops += file["weight"]
         total_cops += cops
 
         print(f"\n--- ({file_counter}) {file['filename']}")
-        if stdout:
-            print_lines(file, "stdout")
-        if stderr:
-            print_lines(file, "stderr")
+        print_lines(file, "stdout") if stdout else None
+        print_lines(file, "stderr") if stderr else None
         print_error_messages(file.get("error_messages", None))
         print_lines(file, "message")
 
         file_counter += 1
 
-    print("\n--- Total (points are CodeOcean points; openHPI points might differ) ---")
     cnt = 1
-    percent = 100 if total_weight == 0 else round(100 * total_cops / total_weight, 2)
+    percent = 100 if max_cops == 0 else round(100 * total_cops / max_cops, 2)
     total_cops = round(total_cops, 2)
+    total_len = 58
+    len = int(total_len * percent / 100)
 
+    print("\n--- Total (points are CodeOcean points) ---")
+    print(f"[{len*'#'}{(total_len-len)*'-'}] {percent:g}%")
     for score in scores:
         print(f"({cnt}) ==> passed {score[0]} / {score[1]} tests, ", end="")
         print(f"points = {round(score[2],2)} / {score[4]}, status = {score[3]}")
         cnt += 1
     print(f"\n    ==> passed {passed} / {count} tests, ", end="")
-    print(f"points = {total_cops} / {total_weight}")
-    total_len = 63
-    len = int(total_len * percent / 100)
-    print(f"\n[{len*'#'}{(total_len-len)*'_'}] {percent:g}%")
+    print(f"points = {total_cops} / {max_cops}")
 
 
 def print_error_messages(errors):
@@ -146,20 +124,19 @@ def print_long_line(long_line):
             print("|", line)
 
 
-def create_payload(project_directory):
+def create_payload(directory):
     # read control file with target url, validation token
     # and expected files
-    co_file = read_utf8_file(project_directory, ".co").splitlines()
+    co_file = read_utf8_file(directory, ".co").splitlines()
 
     # fill files_attributes
     files_attributes = {}
-    print("--- Submit")
     for i in range(2, len(co_file)):
         file_name, file_id = co_file[i].split("=")
         print("|", file_name)
         files_attributes[str(i - 2)] = {
             "file_id": int(file_id),
-            "content": read_utf8_file(project_directory, file_name),
+            "content": read_utf8_file(directory, file_name),
         }
 
     # UTF-8 (allowing non-ascii) and prefer a small json, i.e. no
@@ -199,12 +176,8 @@ def read_utf8_file(directory, file_name):
 def check_response(response):
     # only proceed if response is ok (created) and a json
     assert response["status"] == http.HTTPStatus.CREATED, response
-    found = False
-    for header in response["headers"]:
-        if header[0].lower() == "content-type" and "application/json" in header[1]:
-            found = True
-            break
-    assert found, response
+    is_json = get_header(response["headers"], "content-type").startswith("application/json")
+    assert is_json, response
     result = json.loads(response["content"])
     assert isinstance(result, list), response
     if len(result) > 0:  # There are tests"
@@ -215,12 +188,26 @@ def check_response(response):
 
 
 def print_error_response(response):
-    print("*** Unexpected response from server (codeocean) ***")
-    print(
-        "Http Status Code:",
-        response["status"],
-        "(" + http.HTTPStatus(response["status"]).phrase + ")",
-    )
+    status = response["status"]
+    print(f"\nHttp-Status:{status} ({http.HTTPStatus(status).phrase})")
+    if get_header(response["headers"], "content-type").startswith("application/json"):
+        body = json.loads(response["content"])
+        print(body.get("message"), "")
+    else:
+        print()
+
+    if status == http.HTTPStatus.SERVICE_UNAVAILABLE:
+        print("\n  Most likely no execution environment is currently available.")
+        print("  Try again later.")
+        return
+
+    if status == http.HTTPStatus.UNPROCESSABLE_ENTITY:
+        print("\n Ohoh")
+        print("  The server cannot process the payload. This is an error.")
+        print("  in the script. Please report.")
+        return
+
+    print("\n--- Unexpected response from server (CodeOcean) ---")
 
     print("\n----- Http-Headers:")
     for header in response["headers"]:
@@ -230,20 +217,11 @@ def print_error_response(response):
     print(response["content"].decode())
 
 
-def save(result):
-    if not os.path.exists("log") or not os.path.isdir("log"):
-        return
-
-    fname = "log/result_" + datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S") + ".json"
-    with open(fname, "wb") as file:
-        file.write(result)
-
-
-def get_location_header(headers):
+def get_header(headers, name):
     for header in headers:
-        if header[0].lower() == "location":
+        if header[0].lower() == name:
             return header[1]
-    return "no submission url availabale"
+    return ""
 
 
 def run():
@@ -262,7 +240,7 @@ def run():
         print(f"Version {_version}")
         return
 
-    submit_and_pray(parameter.directory, parameter.stdout, parameter.stderr)
+    submit_and_pray(parameter.directory, parameter.stderr, parameter.stdout)
 
 
 # don't run while being imported

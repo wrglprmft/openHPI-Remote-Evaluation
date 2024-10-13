@@ -126,4 +126,4 @@ This is where this script comes into place, that also handles the communication.
 }
 
 ```
-The script comes without documentation and ‘as is’ and can in no way be considered an example of good Python programming. It also changes frequently as I can never decide if I like the current programme structure, let alone the output. It only uses standard modules, so you shouldn't have to ‘pip’. I have only tested with Python >= 3.10.
+The script comes without documentation and ‘as is’ and can in no way be considered an example of good Python programming. It also changes frequently as I can never decide if I like the current program structure, let alone the output. It only uses standard modules, so you shouldn't have to ‘pip’. I have only tested with Python >= 3.10.
