@@ -1,5 +1,5 @@
-_version = "0.1.3"
-# by wrglprmft
+"""Submits an exercise to CodeOcean for evaluation" 
+   by wrglprmft """
 
 import json
 import http
@@ -9,13 +9,17 @@ import os
 import textwrap
 import argparse
 
+VERSION = "0.1.4"
 
-# main entry point:
-# needs a directory, that contains the .co file (and sources to be submitted)
-# submits and prints result from codeocean and also stderr/stdout from
-# the codeocean response if wanted
+
 def submit_and_pray(exercise_directory=".", stderr=True, stdout=True):
-    print(f"CodeOcean Remote Client v{_version} (by wrglprmft)")
+    """
+    main entry point:
+    needs a directory, that contains the .co file (and sources to be submitted)
+    submits and prints result from codeocean and also stderr/stdout from
+    the codeocean response if wanted
+    """
+    print(f"CodeOcean Remote Client v{VERSION} (by wrglprmft)")
     try:
         if not os.path.isdir(exercise_directory):
             print(f"{exercise_directory} is not a directory")
@@ -27,7 +31,7 @@ def submit_and_pray(exercise_directory=".", stderr=True, stdout=True):
 
         # result is a list of dictionaries
         result = check_response(response)
-        print(f"|\n| Files submitted:", get_header(response["headers"], "location"))
+        print("|\n| Files submitted:", get_header(response["headers"], "location"))
 
         print_result(result, stderr, stdout)
 
@@ -47,17 +51,25 @@ def submit_and_pray(exercise_directory=".", stderr=True, stdout=True):
         print_error_response(ae.args[0])
 
     except urllib.error.URLError as ue:
-        # raised if e.g. a network error occurs 
-        print(f"Generic exception: {str(ue)}")    
+        # raised if e.g. a network error occurs
+        print(f"Generic exception: {str(ue)}")
 
 
 def submit(project_directory):
+    """
+    builds payload from directory and submits it.
+    returns a dictionary with status, headers and content
+    """
+
     url, payload = create_payload(project_directory)
     return post_payload_as_json(url, payload)
 
 
 def print_result(result, stderr=False, stdout=False):
-
+    """
+    prints the returned result
+    result is a list of dictionaries
+    """
     passed = 0
     count = 0
     max_cops = 0.0  # CodeOcean Points
@@ -65,7 +77,6 @@ def print_result(result, stderr=False, stdout=False):
 
     # expect a list of dicts, matching the expected response structure
     scores = []
-    file_counter = 1
     for file in result:
         cops = file["score"] * file["weight"]  # CodeOcean Points
         scores.append((file["passed"], file["count"], cops, file["status"], file["weight"]))
@@ -74,22 +85,22 @@ def print_result(result, stderr=False, stdout=False):
         max_cops += file["weight"]
         total_cops += cops
 
-        print(f"\n--- ({file_counter}) {file['filename']}")
-        print_lines(file, "stdout") if stdout else None
-        print_lines(file, "stderr") if stderr else None
+        print(f"\n--- ({len(scores)}) {file['filename']}")
+        if stdout:
+            print_lines(file, "stdout")
+        if stderr:
+            print_lines(file, "stderr")
         print_error_messages(file.get("error_messages", None))
         print_lines(file, "message")
-
-        file_counter += 1
 
     cnt = 1
     percent = 100 if max_cops == 0 else round(100 * total_cops / max_cops, 2)
     total_cops = round(total_cops, 2)
     total_len = 58
-    len = int(total_len * percent / 100)
+    width = int(total_len * percent / 100)
 
     print("\n--- Total (points are CodeOcean points) ---")
-    print(f"[{len*'#'}{(total_len-len)*'-'}] {percent:g}%")
+    print(f"[{width*'#'}{(total_len-width)*'-'}] {percent:g}%")
     for score in scores:
         print(f"({cnt}) ==> passed {score[0]} / {score[1]} tests, ", end="")
         print(f"points = {round(score[2],2)} / {score[4]}, status = {score[3]}")
@@ -99,6 +110,7 @@ def print_result(result, stderr=False, stdout=False):
 
 
 def print_error_messages(errors):
+    """helper function"""
     if errors:
         print("|-- error_messages ---")
         for error in errors:
@@ -108,6 +120,7 @@ def print_error_messages(errors):
 
 
 def print_lines(file, part):
+    """helper function"""
     if file.get(part, None):
         print(f"|-- {part} ---")
     for line in file[part].splitlines():
@@ -115,6 +128,7 @@ def print_lines(file, part):
 
 
 def print_long_line(long_line):
+    """helper function"""
     if long_line.strip() == "":
         print("|")
     else:
@@ -123,6 +137,11 @@ def print_long_line(long_line):
 
 
 def create_payload(directory):
+    """
+    creates the payload for the given directory
+    reads .co file and the listed files
+    returns an utf-8 encoded json string as bytes
+    """
     # read control file with target url, validation token
     # and expected files
     co_file = read_utf8_file(directory, ".co").splitlines()
@@ -154,6 +173,7 @@ def create_payload(directory):
 
 
 def post_payload_as_json(url, payload):
+    """posts the given payload to the given url as application/json"""
     request = urllib.request.Request(url, payload, {"Content-Type": "application/json"})
     response = {}
     try:
@@ -171,13 +191,17 @@ def post_payload_as_json(url, payload):
 
 
 def read_utf8_file(directory, file_name):
+    """reads a file assuming it'S utf-8 encoded. returns a string"""
     with open(os.path.join(directory, file_name), encoding="utf-8") as file:
         content = file.read()
     return content
 
 
 def check_response(response):
-    # only proceed if response is ok (created) and a json
+    """
+    checks whether the response can be processed further
+    only proceed if response is 201 (created) and a json
+    """
     assert response["status"] == http.HTTPStatus.CREATED, response
     is_json = get_header(response["headers"], "content-type").startswith("application/json")
     assert is_json, response
@@ -191,12 +215,14 @@ def check_response(response):
 
 
 def print_error_response(response):
+    """prints status, headers, code of an unprocessable response"""
     print("\n--- Unexpected response from server (CodeOcean) ---")
     status = response["status"]
     print(f"Http-Status:{status} ({http.HTTPStatus(status).phrase})")
     if get_header(response["headers"], "content-type").startswith("application/json"):
         body = json.loads(response["content"])
-        print(body.get("message"), "") if isinstance(body, dict) else None
+        if isinstance(body, dict):
+            print(body.get("message"), "")
 
     if status == http.HTTPStatus.SERVICE_UNAVAILABLE:
         print("\nMost likely no execution environment is currently available.")
@@ -217,6 +243,7 @@ def print_error_response(response):
 
 
 def get_header(headers, name):
+    """gets a header from heades. name must be lower-case"""
     for header in headers:
         if header[0].lower() == name:
             return header[1]
@@ -224,6 +251,7 @@ def get_header(headers, name):
 
 
 def main():
+    """static main method called if script is not imported"""
     parser = argparse.ArgumentParser(
         description="Submits an exercise to CodeOcean for evaluation",
         epilog=20 * ". " + "(wrglprmft)",
@@ -235,7 +263,7 @@ def main():
     parameter = parser.parse_args()
 
     if parameter.version:
-        print(f"Version {_version}")
+        print(f"Version {VERSION}")
         return
 
     submit_and_pray(parameter.directory, parameter.stderr, parameter.stdout)
