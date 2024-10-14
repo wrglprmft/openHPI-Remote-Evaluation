@@ -1,4 +1,4 @@
-_version = "0.1.2"
+_version = "0.1.3"
 # by wrglprmft
 
 import json
@@ -15,6 +15,7 @@ import argparse
 # submits and prints result from codeocean and also stderr/stdout from
 # the codeocean response if wanted
 def submit_and_pray(exercise_directory=".", stderr=True, stdout=True):
+    print(f"CodeOcean Remote Client v{_version} (by wrglprmft)")
     try:
         if not os.path.isdir(exercise_directory):
             print(f"{exercise_directory} is not a directory")
@@ -35,13 +36,6 @@ def submit_and_pray(exercise_directory=".", stderr=True, stdout=True):
         # current directory
         print(f'File "{fnfe.filename}" not found')
 
-    except urllib.error.HTTPError as he:
-        # raised if the response code from the POST request is
-        # not 2xx (expected is 201)
-        print_error_response(
-            {"content": he.fp.read(), "headers": he.headers.items(), "status": he.code}
-        )
-
     except AssertionError as ae:
         # raised if
         # o response code from the POST is not 201 (Created)
@@ -49,8 +43,12 @@ def submit_and_pray(exercise_directory=".", stderr=True, stdout=True):
         # o headers don't contain a Content-Type with value
         #   "application/json"
         # o parsed response json does not have the expected structure:
-        #   non empty list of dicts containg "filename"
+        #   list of dicts containg "filename"
         print_error_response(ae.args[0])
+
+    except urllib.error.URLError as ue:
+        # raised if e.g. a network error occurs 
+        print(f"Generic exception: {str(ue)}")    
 
 
 def submit(project_directory):
@@ -58,7 +56,7 @@ def submit(project_directory):
     return post_payload_as_json(url, payload)
 
 
-def print_result(result, stderr, stdout):
+def print_result(result, stderr=False, stdout=False):
 
     passed = 0
     count = 0
@@ -158,12 +156,17 @@ def create_payload(directory):
 def post_payload_as_json(url, payload):
     request = urllib.request.Request(url, payload, {"Content-Type": "application/json"})
     response = {}
-    with urllib.request.urlopen(request) as http_response:
-        response = {
-            "content": http_response.read(),
-            "headers": http_response.getheaders(),
-            "status": http_response.status,
-        }
+    try:
+        with urllib.request.urlopen(request) as http_response:
+            response = {
+                "content": http_response.read(),
+                "headers": http_response.getheaders(),
+                "status": http_response.status,
+            }
+    except urllib.error.HTTPError as he:
+        # raised if the response code from the POST request is not 2xx
+        response = {"content": he.fp.read(), "headers": he.headers.items(), "status": he.code}
+
     return response
 
 
@@ -188,30 +191,26 @@ def check_response(response):
 
 
 def print_error_response(response):
+    print("\n--- Unexpected response from server (CodeOcean) ---")
     status = response["status"]
-    print(f"\nHttp-Status:{status} ({http.HTTPStatus(status).phrase})")
+    print(f"Http-Status:{status} ({http.HTTPStatus(status).phrase})")
     if get_header(response["headers"], "content-type").startswith("application/json"):
         body = json.loads(response["content"])
-        print(body.get("message"), "")
-    else:
-        print()
+        print(body.get("message"), "") if isinstance(body, dict) else None
 
     if status == http.HTTPStatus.SERVICE_UNAVAILABLE:
-        print("\n  Most likely no execution environment is currently available.")
-        print("  Try again later.")
+        print("\nMost likely no execution environment is currently available.")
+        print("Try again later.")
         return
 
     if status == http.HTTPStatus.UNPROCESSABLE_ENTITY:
-        print("\n Ohoh")
-        print("  The server cannot process the payload. This is an error.")
-        print("  in the script. Please report.")
+        print("\nThe server cannot process the payload. This is an error.")
+        print("in the script. Please report.")
         return
-
-    print("\n--- Unexpected response from server (CodeOcean) ---")
 
     print("\n----- Http-Headers:")
     for header in response["headers"]:
-        print("  ", header[0], ":", header[1])
+        print(header[0], ":", header[1])
 
     print("\n----- Content (utf-8 decoded):")
     print(response["content"].decode())
@@ -224,8 +223,7 @@ def get_header(headers, name):
     return ""
 
 
-def run():
-
+def main():
     parser = argparse.ArgumentParser(
         description="Submits an exercise to CodeOcean for evaluation",
         epilog=20 * ". " + "(wrglprmft)",
@@ -245,4 +243,4 @@ def run():
 
 # don't run while being imported
 if __name__ == "__main__":
-    run()
+    main()
