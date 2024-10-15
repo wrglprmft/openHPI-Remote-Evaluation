@@ -1,4 +1,16 @@
 """Submits an exercise to CodeOcean for evaluation" 
+
+    An exercise downloaded as zip from CodeOcean should be extracted to
+    a single directory <directory_name>
+
+    This script takes this directory name and sends by interpreting the
+    .co file the sources to CodeOcean. CodeOcean saves the sources,
+    executes tests and returns the result(score) as json.
+
+    The returned result is then parsed and printed. The result also contains
+    stderr and stdout from the unit test run in CodeOcean. This is only
+    output if requested.
+
    by wrglprmft """
 
 import json
@@ -8,42 +20,53 @@ import urllib.request
 import os
 import textwrap
 import argparse
+import dataclasses
 
-VERSION = "0.1.4"
+_VERSION = "0.1.5"
+_BAR_WIDTH = 62
 
 
-def submit_and_pray(exercise_directory=".", stderr=True, stdout=True):
+@dataclasses.dataclass
+class Response:
+    """Used as container to hold content, headers and status of an HTTP-Response"""
+
+    content: bytes
+    headers: object
+    status: int
+
+
+def evaluate(directory_name: str = ".", stderr: bool = False, stdout: bool = False) -> None:
+    """submits the sources to CodeOcean and prints the results
+
+    Args:
+        directory_name (str, optional): directory containing the .co file. Defaults to ".".
+        stderr (bool, optional): print also the stderr output of the result. Defaults to True.
+        stdout (bool, optional): print also the stdout output of the result. Defaults to True.
     """
-    main entry point:
-    needs a directory, that contains the .co file (and sources to be submitted)
-    submits and prints result from codeocean and also stderr/stdout from
-    the codeocean response if wanted
-    """
-    print(f"CodeOcean Remote Client v{VERSION} (by wrglprmft)")
+    print(f"CodeOcean Remote Client v{_VERSION} (by wrglprmft)")
     try:
-        if not os.path.isdir(exercise_directory):
-            print(f"{exercise_directory} is not a directory")
+        if not os.path.isdir(directory_name):
+            print(f"{directory_name} is not a directory")
             return
 
         # response has status, headers and binary content
         print("--- Submit")
-        response = submit(exercise_directory)
+        response = submit(directory_name)
 
         # result is a list of dictionaries
         result = check_response(response)
-        print("|\n| Files submitted:", get_header(response["headers"], "location"))
+        print("|\n| Files submitted:", get_header(response.headers, "location"))
 
         print_result(result, stderr, stdout)
 
     except FileNotFoundError as fnfe:
-        # raised if .co file or required src files are not in the
+        # raised if .co file or required source files are not in the
         # current directory
         print(f'File "{fnfe.filename}" not found')
 
     except AssertionError as ae:
         # raised if
         # o response code from the POST is not 201 (Created)
-        #   but between 200 and 299
         # o headers don't contain a Content-Type with value
         #   "application/json"
         # o parsed response json does not have the expected structure:
@@ -55,37 +78,38 @@ def submit_and_pray(exercise_directory=".", stderr=True, stdout=True):
         print(f"Generic exception: {str(ue)}")
 
 
-def submit(project_directory):
-    """
-    builds payload from directory and submits it.
-    returns a dictionary with status, headers and content
+def submit(project_directory: str) -> Response:
+    """builds payload files in directory and submits it
+
+    Args:
+        project_directory (str): directory containing .co file and sources
+
+    Returns:
+        Response: content, headers, status of the http response
     """
 
     url, payload = create_payload(project_directory)
     return post_payload_as_json(url, payload)
 
 
-def print_result(result, stderr=False, stdout=False):
+def print_result(result: list, stderr: bool = False, stdout: bool = False) -> None:
+    """_summary_
+
+    Args:
+        result (list): the result as list of dictionaries
+        stderr (bool, optional): print also stderr. Defaults to False.
+        stdout (bool, optional): print also stdout. Defaults to False.
     """
-    prints the returned result
-    result is a list of dictionaries
-    """
-    passed = 0
-    count = 0
-    max_cops = 0.0  # CodeOcean Points
-    total_cops = 0.0
+    passed, count, max_points, total_points = 0, 0, 0.0, 0.0
 
     # expect a list of dicts, matching the expected response structure
-    scores = []
-    for file in result:
-        cops = file["score"] * file["weight"]  # CodeOcean Points
-        scores.append((file["passed"], file["count"], cops, file["status"], file["weight"]))
+    for cnt, file in enumerate(result):
         passed += file["passed"]
         count += file["count"]
-        max_cops += file["weight"]
-        total_cops += cops
+        max_points += file["weight"]
+        total_points += file["score"] * file["weight"]  # CodeOcean Points
 
-        print(f"\n--- ({len(scores)}) {file['filename']}")
+        print(f"\n--- ({cnt+1}) {file['filename']}")
         if stdout:
             print_lines(file, "stdout")
         if stderr:
@@ -93,24 +117,31 @@ def print_result(result, stderr=False, stdout=False):
         print_error_messages(file.get("error_messages", None))
         print_lines(file, "message")
 
-    cnt = 1
-    percent = 100 if max_cops == 0 else round(100 * total_cops / max_cops, 2)
-    total_cops = round(total_cops, 2)
-    total_len = 58
-    width = int(total_len * percent / 100)
+    print(f"\n{72*'~'}")
+    for cnt, file in enumerate(result):
+        print(f"({cnt+1}) ==> passed {file['passed']:2d} / {file['count']:2d} tests, ", end="")
+        print(f"points = {round((file['score'] * file['weight']),2):5.2f} ", end="")
+        print(f"/ {file['weight']:5.2f} ", end="")
+        print(f", status = {file['status']}")
 
-    print("\n--- Total (points are CodeOcean points) ---")
-    print(f"[{width*'#'}{(total_len-width)*'-'}] {percent:g}%")
-    for score in scores:
-        print(f"({cnt}) ==> passed {score[0]} / {score[1]} tests, ", end="")
-        print(f"points = {round(score[2],2)} / {score[4]}, status = {score[3]}")
-        cnt += 1
-    print(f"\n    ==> passed {passed} / {count} tests, ", end="")
-    print(f"points = {total_cops} / {max_cops}")
+    print(f"        passed {passed:2d} / {count:2d} tests, ", end="")
+    print(f"points = {total_points:5.2f} / {max_points:5.2f}")
+
+    percent = 100 if max_points == 0 else round(100 * total_points / max_points, 2)
+    total_points = round(total_points, 2)
+    width = int(_BAR_WIDTH * percent / 100)
+    print(f"\n [{width*'#'}{(_BAR_WIDTH-width)*'.'}] {percent:g}%\n")
+
+    print(f"{72*'~'}\n")
 
 
-def print_error_messages(errors):
-    """helper function"""
+def print_error_messages(errors: list) -> None:
+    """pretty prints the returned error_messages
+
+    Args:
+        errors (list): list of string containing the error messages
+    """
+
     if errors:
         print("|-- error_messages ---")
         for error in errors:
@@ -119,16 +150,25 @@ def print_error_messages(errors):
             print("|")
 
 
-def print_lines(file, part):
-    """helper function"""
+def print_lines(file: dict, part: str) -> None:
+    """pretty prints a part of a dictionary
+
+    Args:
+        file (dict): result of one test file as dictionary
+        part (str): key of the dictionary, which values are to be pretty printed
+    """
     if file.get(part, None):
         print(f"|-- {part} ---")
     for line in file[part].splitlines():
         print_long_line(line)
 
 
-def print_long_line(long_line):
-    """helper function"""
+def print_long_line(long_line: str) -> None:
+    """wraps a long string and pretty prints it
+
+    Args:
+        long_line (str): text to be wrapped, should not contain line breaks
+    """
     if long_line.strip() == "":
         print("|")
     else:
@@ -136,15 +176,19 @@ def print_long_line(long_line):
             print("|", line)
 
 
-def create_payload(directory):
-    """
-    creates the payload for the given directory
-    reads .co file and the listed files
-    returns an utf-8 encoded json string as bytes
+def create_payload(directory_name: str) -> tuple[str, bytes]:
+    """creates the payload for the given directory based on
+    the .co file and the listed files
+
+    Args:
+        directory_name (str): directory containing .co file and sources
+
+    Returns:
+        tuple[str, bytes]: target_url, payload
     """
     # read control file with target url, validation token
     # and expected files
-    co_file = read_utf8_file(directory, ".co").splitlines()
+    co_file = read_utf8_file(directory_name, ".co").splitlines()
 
     # fill files_attributes
     files_attributes = {}
@@ -153,7 +197,7 @@ def create_payload(directory):
         print("|", file_name)
         files_attributes[str(i - 2)] = {
             "file_id": int(file_id),
-            "content": read_utf8_file(directory, file_name),
+            "content": read_utf8_file(directory_name, file_name),
         }
 
     # UTF-8 (allowing non-ascii) and prefer a small json, i.e. no
@@ -172,40 +216,57 @@ def create_payload(directory):
     return co_file[1], payload
 
 
-def post_payload_as_json(url, payload):
-    """posts the given payload to the given url as application/json"""
+def post_payload_as_json(url: str, payload: bytes) -> Response:
+    """posts the given payload to the given url as application/json
+
+    Args:
+        url (str): target_url to POST the payload
+        payload (bytes): payload
+
+    Returns:
+        Response: Object containing content, headers ans status
+    """
     request = urllib.request.Request(url, payload, {"Content-Type": "application/json"})
-    response = {}
     try:
         with urllib.request.urlopen(request) as http_response:
-            response = {
-                "content": http_response.read(),
-                "headers": http_response.getheaders(),
-                "status": http_response.status,
-            }
+            response = Response(
+                http_response.read(), http_response.getheaders(), http_response.status
+            )
     except urllib.error.HTTPError as he:
         # raised if the response code from the POST request is not 2xx
-        response = {"content": he.fp.read(), "headers": he.headers.items(), "status": he.code}
+        response = Response(he.fp.read(), he.headers.items(), he.code)
 
     return response
 
 
-def read_utf8_file(directory, file_name):
-    """reads a file assuming it'S utf-8 encoded. returns a string"""
-    with open(os.path.join(directory, file_name), encoding="utf-8") as file:
-        content = file.read()
-    return content
+def read_utf8_file(directory_name: str, file_name: str) -> str:
+    """reads a file as string assuming the file is utf-8 encoded
+
+    Args:
+        directory_name (str): name of the directory, where the file can be found
+        file_name (str): name of the file
+
+    Returns:
+        str: content of the file
+    """
+    with open(os.path.join(directory_name, file_name), encoding="utf-8") as file:
+        return file.read()
 
 
-def check_response(response):
+def check_response(response: Response) -> list:
+    """checks whether the response can be processed further.
+    Only proceed if status is 201 (created) and content is announced as json
+
+    Args:
+        response (Response): Response with content, headers and status
+
+    Returns:
+        list: result, a list containing dictionaries
     """
-    checks whether the response can be processed further
-    only proceed if response is 201 (created) and a json
-    """
-    assert response["status"] == http.HTTPStatus.CREATED, response
-    is_json = get_header(response["headers"], "content-type").startswith("application/json")
+    assert response.status == http.HTTPStatus.CREATED, response
+    is_json = get_header(response.headers, "content-type").startswith("application/json")
     assert is_json, response
-    result = json.loads(response["content"])
+    result = json.loads(response.content)
     assert isinstance(result, list), response
     if len(result) > 0:  # There are tests"
         assert isinstance(result[0], dict), response
@@ -214,47 +275,59 @@ def check_response(response):
     return result
 
 
-def print_error_response(response):
-    """prints status, headers, code of an unprocessable response"""
+def print_error_response(response: Response) -> None:
+    """prints status, headers, code of an unprocessable response
+    special treatment for status 422 and 503
+
+    Args:
+        response (Response): Response with content, headers and status
+    """
     print("\n--- Unexpected response from server (CodeOcean) ---")
-    status = response["status"]
-    print(f"Http-Status:{status} ({http.HTTPStatus(status).phrase})")
-    if get_header(response["headers"], "content-type").startswith("application/json"):
-        body = json.loads(response["content"])
+
+    print(f"Http-Status:{response.status} ({http.HTTPStatus(response.status).phrase})")
+    if get_header(response.headers, "content-type").startswith("application/json"):
+        body = json.loads(response.content)
         if isinstance(body, dict):
             print(body.get("message"), "")
 
-    if status == http.HTTPStatus.SERVICE_UNAVAILABLE:
+    if response.status == http.HTTPStatus.SERVICE_UNAVAILABLE:
         print("\nMost likely no execution environment is currently available.")
         print("Try again later.")
         return
 
-    if status == http.HTTPStatus.UNPROCESSABLE_ENTITY:
+    if response.status == http.HTTPStatus.UNPROCESSABLE_ENTITY:
         print("\nThe server cannot process the payload. This is an error.")
         print("in the script. Please report.")
         return
 
     print("\n----- Http-Headers:")
-    for header in response["headers"]:
+    for header in response.headers:
         print(header[0], ":", header[1])
 
     print("\n----- Content (utf-8 decoded):")
-    print(response["content"].decode())
+    print(response.content.decode())
 
 
-def get_header(headers, name):
-    """gets a header from heades. name must be lower-case"""
+def get_header(headers, name: str) -> str:
+    """gets a header from headers
+
+    Args:
+        headers (iterable): list of pairs
+        name (str): name of a header field
+
+    Returns:
+        str: value of the header field or empty string if not found
+    """
     for header in headers:
-        if header[0].lower() == name:
+        if header[0].lower() == name.lower():
             return header[1]
     return ""
 
 
-def main():
+def main() -> None:
     """static main method called if script is not imported"""
     parser = argparse.ArgumentParser(
-        description="Submits an exercise to CodeOcean for evaluation",
-        epilog=20 * ". " + "(wrglprmft)",
+        description=f"CodeOcean Remote Client v{_VERSION} (by wrglprmft)"
     )
     parser.add_argument("directory", help="directory with .co file", default=".", nargs="?")
     parser.add_argument("-o", "--stdout", action="store_true", help="output also stdout")
@@ -263,10 +336,10 @@ def main():
     parameter = parser.parse_args()
 
     if parameter.version:
-        print(f"Version {VERSION}")
+        print(f"Version {_VERSION}")
         return
 
-    submit_and_pray(parameter.directory, parameter.stderr, parameter.stdout)
+    evaluate(parameter.directory, parameter.stderr, parameter.stdout)
 
 
 # don't run while being imported
