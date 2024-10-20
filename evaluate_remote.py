@@ -22,8 +22,18 @@ import textwrap
 import argparse
 import dataclasses
 
-_VERSION = "0.1.5"
-_BAR_WIDTH = 62
+_VERSION = "0.1.7"
+
+_COLS = 80
+_BAR_WIDTH = _COLS - 10
+_C_VERT = "\u2503"
+_C_HOR = "\u2501"
+_C_UL = "\u250F"
+_C_UR = "\u2513"
+_C_BL = "\u2517"
+_C_BR = "\u251b"
+_C_LEFT = "\u2523"
+_C_RIGHT = "\u252b"
 
 
 @dataclasses.dataclass
@@ -43,19 +53,24 @@ def evaluate(directory_name: str = ".", stderr: bool = False, stdout: bool = Fal
         stderr (bool, optional): print also the stderr output of the result. Defaults to True.
         stdout (bool, optional): print also the stdout output of the result. Defaults to True.
     """
-    print(f"CodeOcean Remote Client v{_VERSION} (by wrglprmft)")
+    o(_C_UL, _C_HOR, _C_UR, _C_HOR)
+    o(_C_VERT, f" CodeOcean Remote Client v{_VERSION} (by wrglprmft)", _C_VERT)
+    o(_C_VERT, f" {os.path.basename(os.path.abspath(directory_name))}", _C_VERT)
+    o(_C_BL, _C_HOR, _C_BR, _C_HOR)
     try:
         if not os.path.isdir(directory_name):
             print(f"{directory_name} is not a directory")
             return
 
         # response has status, headers and binary content
-        print("--- Submit")
+        o(_C_UL, 25 * _C_HOR + " Submit ", _C_UR, _C_HOR)
         response = submit(directory_name)
 
         # result is a list of dictionaries
         result = check_response(response)
-        print("|\n| Files submitted:", get_header(response.headers, "location"))
+        o(_C_VERT, "", _C_VERT)
+        o(_C_VERT, " Submission created: " + get_header(response.headers, "location"), _C_VERT)
+        o(_C_BL, _C_HOR, _C_BR, _C_HOR)
 
         print_result(result, stderr, stdout)
 
@@ -109,30 +124,27 @@ def print_result(result: list, stderr: bool = False, stdout: bool = False) -> No
         max_points += file["weight"]
         total_points += file["score"] * file["weight"]  # CodeOcean Points
 
-        print(f"\n--- ({cnt+1}) {file['filename']}")
+        o(_C_UL, 4 * _C_HOR + f" ({cnt+1}) {file['filename']}", _C_UR, _C_HOR)
         if stdout:
             print_lines(file, "stdout")
         if stderr:
             print_lines(file, "stderr")
         print_error_messages(file.get("error_messages", None))
         print_lines(file, "message")
+        o(_C_BL, _C_HOR, _C_BR, _C_HOR)
 
-    print(f"\n{72*'~'}")
+    percent = 100 if max_points == 0 else round(100 * total_points / max_points, 2)
+    width = int(_BAR_WIDTH * percent / 100)
+    print(f"\n {width*'\u2593'}{(_BAR_WIDTH-width)*'\u2591'} {percent:g}%\n")
+
     for cnt, file in enumerate(result):
-        print(f"({cnt+1}) ==> passed {file['passed']:2d} / {file['count']:2d} tests, ", end="")
+        print(f"  ({cnt+1}) ==> passed {file['passed']:2d} / {file['count']:2d} tests, ", end="")
         print(f"points = {round((file['score'] * file['weight']),2):5.2f} ", end="")
         print(f"/ {file['weight']:5.2f} ", end="")
         print(f", status = {file['status']}")
 
-    print(f"        passed {passed:2d} / {count:2d} tests, ", end="")
+    print(f"          passed {passed:2d} / {count:2d} tests, ", end="")
     print(f"points = {total_points:5.2f} / {max_points:5.2f}")
-
-    percent = 100 if max_points == 0 else round(100 * total_points / max_points, 2)
-    total_points = round(total_points, 2)
-    width = int(_BAR_WIDTH * percent / 100)
-    print(f"\n [{width*'#'}{(_BAR_WIDTH-width)*'.'}] {percent:g}%\n")
-
-    print(f"{72*'~'}\n")
 
 
 def print_error_messages(errors: list) -> None:
@@ -143,11 +155,11 @@ def print_error_messages(errors: list) -> None:
     """
 
     if errors:
-        print("|-- error_messages ---")
+        o(_C_LEFT, 25 * _C_HOR + " error_messages ", _C_RIGHT, _C_HOR)
         for error in errors:
             for line in error.splitlines():
                 print_long_line(line)
-            print("|")
+            o(_C_VERT, "", _C_VERT)
 
 
 def print_lines(file: dict, part: str) -> None:
@@ -158,9 +170,9 @@ def print_lines(file: dict, part: str) -> None:
         part (str): key of the dictionary, which values are to be pretty printed
     """
     if file.get(part, None):
-        print(f"|-- {part} ---")
-    for line in file[part].splitlines():
-        print_long_line(line)
+        o(_C_LEFT, 25 * _C_HOR + f" {part} ", _C_RIGHT, _C_HOR)
+        for line in file[part].splitlines():
+            print_long_line(line)
 
 
 def print_long_line(long_line: str) -> None:
@@ -170,10 +182,10 @@ def print_long_line(long_line: str) -> None:
         long_line (str): text to be wrapped, should not contain line breaks
     """
     if long_line.strip() == "":
-        print("|")
+        o(_C_VERT, "", _C_VERT)
     else:
         for line in textwrap.wrap(long_line, 70):
-            print("|", line)
+            o(_C_VERT, line.replace("\t", "  "), _C_VERT)
 
 
 def create_payload(directory_name: str) -> tuple[str, bytes]:
@@ -194,7 +206,7 @@ def create_payload(directory_name: str) -> tuple[str, bytes]:
     files_attributes = {}
     for i in range(2, len(co_file)):
         file_name, file_id = co_file[i].split("=")
-        print("|", file_name)
+        o(_C_VERT, " " + file_name, _C_VERT)
         files_attributes[str(i - 2)] = {
             "file_id": int(file_id),
             "content": read_utf8_file(directory_name, file_name),
@@ -322,6 +334,11 @@ def get_header(headers, name: str) -> str:
         if header[0].lower() == name.lower():
             return header[1]
     return ""
+
+
+def o(left, middle, right, fill=" "):
+    _len = len(left) + len(middle) + len(right)
+    print(left + middle + (_COLS - _len) * fill + right)
 
 
 def main() -> None:
