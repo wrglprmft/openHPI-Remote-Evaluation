@@ -53,24 +53,24 @@ def evaluate(directory_name: str = ".", stderr: bool = False, stdout: bool = Fal
         stderr (bool, optional): print also the stderr output of the result. Defaults to True.
         stdout (bool, optional): print also the stdout output of the result. Defaults to True.
     """
-    o(_C_UL, _C_HOR, _C_UR, _C_HOR)
-    o(_C_VERT, f" CodeOcean Remote Client v{_VERSION} (by wrglprmft)", _C_VERT)
-    o(_C_VERT, f" {os.path.basename(os.path.abspath(directory_name))}", _C_VERT)
-    o(_C_BL, _C_HOR, _C_BR, _C_HOR)
+    top_out("")
+    out(f" CodeOcean Remote Client v{_VERSION} (by wrglprmft)")
+    out(f" {os.path.basename(os.path.abspath(directory_name))}")
+    bottom_out()
     try:
         if not os.path.isdir(directory_name):
             print(f"{directory_name} is not a directory")
             return
 
         # response has status, headers and binary content
-        o(_C_UL, 25 * _C_HOR + " Submit ", _C_UR, _C_HOR)
+        top_out("Submit")
         response = submit(directory_name)
 
         # result is a list of dictionaries
         result = check_response(response)
-        o(_C_VERT, "", _C_VERT)
-        o(_C_VERT, " Submission created: " + get_header(response.headers, "location"), _C_VERT)
-        o(_C_BL, _C_HOR, _C_BR, _C_HOR)
+        out("")
+        out(" Submission created: " + get_header(response.headers, "location"))
+        bottom_out()
 
         print_result(result, stderr, stdout)
 
@@ -124,15 +124,14 @@ def print_result(result: list, stderr: bool = False, stdout: bool = False) -> No
         max_points += file["weight"]
         total_points += file["score"] * file["weight"]  # CodeOcean Points
 
-        o(_C_UL, 4 * _C_HOR + f" ({cnt+1}) {file['filename']}", _C_UR, _C_HOR)
+        top_out(f"({cnt+1}) {file['filename']}", 4)
         if stdout:
             print_lines(file, "stdout")
         if stderr:
             print_lines(file, "stderr")
         print_error_messages(file.get("error_messages", None))
         print_lines(file, "message")
-        o(_C_BL, _C_HOR, _C_BR, _C_HOR)
-
+        bottom_out()
     percent = 100 if max_points == 0 else round(100 * total_points / max_points, 2)
     width = int(_BAR_WIDTH * percent / 100)
     print(f"\n {width*'\u2593'}{(_BAR_WIDTH-width)*'\u2591'} {percent:g}%\n")
@@ -155,11 +154,11 @@ def print_error_messages(errors: list) -> None:
     """
 
     if errors:
-        o(_C_LEFT, 25 * _C_HOR + " error_messages ", _C_RIGHT, _C_HOR)
+        top_out("error_messages", left=_C_LEFT, right=_C_RIGHT)
         for error in errors:
             for line in error.splitlines():
                 print_long_line(line)
-            o(_C_VERT, "", _C_VERT)
+            out("")
 
 
 def print_lines(file: dict, part: str) -> None:
@@ -170,7 +169,7 @@ def print_lines(file: dict, part: str) -> None:
         part (str): key of the dictionary, which values are to be pretty printed
     """
     if file.get(part, None):
-        o(_C_LEFT, 25 * _C_HOR + f" {part} ", _C_RIGHT, _C_HOR)
+        top_out(part, left=_C_LEFT, right=_C_RIGHT)
         for line in file[part].splitlines():
             print_long_line(line)
 
@@ -182,10 +181,10 @@ def print_long_line(long_line: str) -> None:
         long_line (str): text to be wrapped, should not contain line breaks
     """
     if long_line.strip() == "":
-        o(_C_VERT, "", _C_VERT)
+        out("")
     else:
         for line in textwrap.wrap(long_line, 70):
-            o(_C_VERT, line.replace("\t", "  "), _C_VERT)
+            out(line.replace("\t", "  "))
 
 
 def create_payload(directory_name: str) -> tuple[str, bytes]:
@@ -206,7 +205,7 @@ def create_payload(directory_name: str) -> tuple[str, bytes]:
     files_attributes = {}
     for i in range(2, len(co_file)):
         file_name, file_id = co_file[i].split("=")
-        o(_C_VERT, " " + file_name, _C_VERT)
+        out(" " + file_name)
         files_attributes[str(i - 2)] = {
             "file_id": int(file_id),
             "content": read_utf8_file(directory_name, file_name),
@@ -336,9 +335,22 @@ def get_header(headers, name: str) -> str:
     return ""
 
 
-def o(left, middle, right, fill=" "):
+def out(middle="", left=_C_VERT, right=_C_VERT, fill=" "):
     _len = len(left) + len(middle) + len(right)
-    print(left + middle + (_COLS - _len) * fill + right)
+    print(left + middle, end="")
+    if _len <= _COLS:
+        print((_COLS - _len) * fill + right)
+
+
+def bottom_out():
+    out(_C_HOR, _C_BL, _C_BR, _C_HOR)
+
+
+def top_out(text, dist=25, left=_C_UL, right=_C_UR):
+    if len(text) > 0:
+        out(dist * _C_HOR + " " + text + " ", left, right, _C_HOR)
+    else:
+        out("", left, right, _C_HOR)
 
 
 def main() -> None:
